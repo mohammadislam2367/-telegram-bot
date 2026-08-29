@@ -1,7 +1,7 @@
 import os
+import re
 import random
 import asyncio
-import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from telegram import Update
@@ -13,17 +13,16 @@ from telegram.ext import (
     filters,
 )
 # =========================================================
-# تنظیمات اصلی
+# SETTINGS
 # =========================================================
 TOKEN = os.environ["TOKEN"]
 TIMEZONE = "Asia/Kabul"
-# برای جلوگیری از جواب کاملاً تکراری
+# جلوگیری از تکرار پشت سر هم برای هر چت
 last_replies = {}
 # =========================================================
-# ابزارهای کمکی
+# TEXT HELPERS
 # =========================================================
-def normalize(text: str) -> str:
-    """تمیز کردن متن فارسی و انگلیسی."""
+def clean_text(text: str) -> str:
     text = text.strip().lower()
     replacements = {
         "ي": "ی",
@@ -34,16 +33,26 @@ def normalize(text: str) -> str:
     for old, new in replacements.items():
         text = text.replace(old, new)
     return text
-def is_english(text: str) -> bool:
-    """تشخیص ساده زبان پیام."""
-    english_chars = len(re.findall(r"[a-zA-Z]", text))
-    persian_chars = len(re.findall(r"[\u0600-\u06FF]", text))
-    return english_chars > persian_chars
-def choose_random(chat_id, options):
-    """انتخاب جواب تصادفی بدون تکرار پشت سر هم."""
+def detect_language(text: str) -> str:
+    """
+    تشخیص ساده فارسی / انگلیسی.
+    اگر حروف فارسی بیشتر باشند فارسی،
+    در غیر این صورت اگر حروف انگلیسی وجود داشته باشد انگلیسی.
+    """
+    fa = len(re.findall(r"[\u0600-\u06FF]", text))
+    en = len(re.findall(r"[A-Za-z]", text))
+    if fa > en:
+        return "fa"
+    if en > 0:
+        return "en"
+    return "fa"
+def random_reply(key, options):
+    """
+    جواب تصادفی بدون تکرار پشت سر هم.
+    """
     if not options:
         return ""
-    previous = last_replies.get(chat_id)
+    previous = last_replies.get(key)
     available = [
         item for item in options
         if item != previous
@@ -51,34 +60,110 @@ def choose_random(chat_id, options):
     if not available:
         available = options
     result = random.choice(available)
-    last_replies[chat_id] = result
+    last_replies[key] = result
     return result
 def kabul_hour():
-    """گرفتن ساعت افغانستان."""
     return datetime.now(
         ZoneInfo(TIMEZONE)
     ).hour
 # =========================================================
-# سلام فارسی
+# TIME RESPONSES
+# =========================================================
+MORNING_FA = [
+    "صبح بخیر داش ☀️😎 فعلاً صاحب اکانت در دسترس نیست؛ پیامت رو بذار.",
+    "صبح قشنگت بخیر رفیق ☕️🤖 فعلاً من نگهبان پیاما هستم.",
+    "صبح بخیر! ☀️😂 صاحب اکانت فعلاً نیست، ولی پیامت رسید.",
+]
+NOON_FA = [
+    "ظهر بخیر داش 🌞😎 فعلاً صاحب اکانت نیست؛ پیامت رو بذار.",
+    "ظهر به‌خیر رفیق ☀️🤖 پیام شما دریافت شد.",
+    "وسط روز رسیدی 😂🌞 فعلاً من سر پستم!",
+]
+AFTERNOON_FA = [
+    "عصر بخیر داش 🌇😎 فعلاً صاحب اکانت در دسترس نیست.",
+    "عصرت قشنگ رفیق 🌆🤖 پیامت رسید.",
+    "عصر رسیدی 😂🌇 من فعلاً جای صاحب اکانت وایسادم!",
+]
+NIGHT_FA = [
+    "شب بخیر داش 🌙😎 فعلاً صاحب اکانت در دسترس نیست.",
+    "شب آروم رفیق 🌌🤖 پیامت رسید.",
+    "اوه، شب رسیدی 😂🌙 فعلاً من نگهبان اینجام!",
+]
+MORNING_EN = [
+    "Good morning! ☀️😎 The owner is currently unavailable.",
+    "Morning bro! ☕️🤖 Your message has been received.",
+]
+NOON_EN = [
+    "Good afternoon! 🌞😎 The owner is currently unavailable.",
+    "Afternoon bro! 🤖📩 Your message has been received.",
+]
+AFTERNOON_EN = [
+    "Good evening! 🌇😎 The owner is currently unavailable.",
+    "Evening bro! 🤖📩 Your message has been received.",
+]
+NIGHT_EN = [
+    "Good night! 🌙😎 The owner is currently unavailable.",
+    "Night bro! 🌌🤖 Your message has been received.",
+]
+def get_time_reply(language, key):
+    hour = kabul_hour()
+    if language == "en":
+        if 5 <= hour < 11:
+            return random_reply(
+                key + "-morning",
+                MORNING_EN,
+            )
+        if 11 <= hour < 15:
+            return random_reply(
+                key + "-noon",
+                NOON_EN,
+            )
+        if 15 <= hour < 19:
+            return random_reply(
+                key + "-afternoon",
+                AFTERNOON_EN,
+            )
+        return random_reply(
+            key + "-night",
+            NIGHT_EN,
+        )
+    if 5 <= hour < 11:
+        return random_reply(
+            key + "-morning",
+            MORNING_FA,
+        )
+    if 11 <= hour < 15:
+        return random_reply(
+            key + "-noon",
+            NOON_FA,
+        )
+    if 15 <= hour < 19:
+        return random_reply(
+            key + "-afternoon",
+            AFTERNOON_FA,
+        )
+    return random_reply(
+        key + "-night",
+        NIGHT_FA,
+    )
+# =========================================================
+# GREETINGS
 # =========================================================
 HELLO_FA = [
-    "سلاممم داش 👋😎 فعلاً صاحب ربات اینجا نیست، ولی من سر پستم 🤖",
+    "سلاممم داش 👋😎 فعلاً صاحب اکانت اینجا نیست، ولی من سر پستم 🤖",
     "به‌به سلام رفیق 😂🤝 پیامت سالم رسید!",
-    "سلام داش 🔥🤖 فعلاً من نگهبان اینجام.",
-    "سلام رفیق 😎📩 صاحب ربات فعلاً در دسترس نیست.",
-    "سلاممم 😂 من زودتر از صاحب ربات جواب دادم!",
+    "سلام داش 🔥🤖 فعلاً من نگهبان پیاما هستم.",
+    "سلام رفیق 😎📩 صاحب اکانت فعلاً در دسترس نیست.",
+    "سلاممم 😂 من زودتر از صاحب اکانت جواب دادم!",
 ]
-# =========================================================
-# سلام انگلیسی
-# =========================================================
 HELLO_EN = [
     "Hey bro! 👋😎 The owner is currently away, but I'm on duty. 🤖",
     "Hello! 🤖🔥 Your message has been received.",
     "Hey! 😂📩 The owner isn't available right now.",
-    "Hello bro! 😎 The robot is watching the inbox.",
+    "Hello bro! 😎 The inbox robot is on duty.",
 ]
 # =========================================================
-# تشکر
+# THANKS
 # =========================================================
 THANKS_FA = [
     "خواهش می‌کنم داش 😎🤝",
@@ -93,13 +178,13 @@ THANKS_EN = [
     "You're good bro! 😎",
 ]
 # =========================================================
-# کجایی؟
+# WHERE
 # =========================================================
 WHERE_FA = [
-    "فعلاً صاحب ربات در دسترس نیست 😎📵 پیامت رو بذار.",
+    "فعلاً صاحب اکانت در دسترس نیست 😎📵 پیامت رو بذار.",
     "کجاست؟ 😂 داش منم خبر ندارم!",
     "فعلاً غایبه رفیق 🤖📩 ولی پیامت رسید.",
-    "صاحب ربات فعلاً نیست؛ من جای خالی‌شو پر کردم 😂",
+    "صاحب اکانت فعلاً نیست؛ من جای خالی‌شو پر کردم 😂",
 ]
 WHERE_EN = [
     "The owner is currently away 😎📵 Leave your message here.",
@@ -108,20 +193,17 @@ WHERE_EN = [
     "The owner is away, so I'm covering the inbox 😂",
 ]
 # =========================================================
-# پاسخ‌های عمومی فارسی
+# GENERAL
 # =========================================================
 GENERAL_FA = [
-    "😂 داش اینو دیگه باید صاحب ربات خودش ببینه! پیامت ثبت شد 🤖📩",
+    "😂 داش اینو دیگه باید صاحب اکانت خودش ببینه! پیامت ثبت شد 🤖📩",
     "😎 پیامت رسید رفیق؛ فعلاً من نگهبان اینجام 🤖",
     "🤣 دریافت شد داش! پیام گم نمی‌شه.",
-    "🤖 پیام وارد سیستم شد؛ بعداً صاحب ربات می‌بینتش.",
+    "🤖 پیام وارد سیستم شد؛ بعداً صاحب اکانت می‌بینتش.",
     "😂 گرفتم رفیق! فعلاً ربات سر پسته.",
     "📩 پیامت رسید؛ من تحویلش گرفتم 😎🤖",
-    "😂 صاحب ربات نیست، ولی صندوق پیام‌ها بیکار نیست!",
+    "😂 صاحب اکانت نیست، ولی صندوق پیام‌ها بیکار نیست!",
 ]
-# =========================================================
-# پاسخ‌های عمومی انگلیسی
-# =========================================================
 GENERAL_EN = [
     "😂 Got your message bro! The owner is currently away. 🤖📩",
     "😎 Message received! The owner will see it later.",
@@ -130,64 +212,7 @@ GENERAL_EN = [
     "📩 Message received and safely delivered.",
 ]
 # =========================================================
-# صبح / ظهر / عصر / شب
-# =========================================================
-MORNING_FA = [
-    "صبح قشنگت بخیر داش ☀️😎 فعلاً صاحب ربات نیست؛ یه پیام بنداز اینجا!",
-    "صبح بخیر رفیق ☀️🤖 من فعلاً نگهبان صندوق پیامم.",
-    "صبح بخیر داش 😂☕️ صاحب ربات فعلاً نیست، ولی پیامت رسید.",
-]
-NOON_FA = [
-    "ظهر بخیر داش 🌞😎 فعلاً صاحب ربات در دسترس نیست، پیامت رو بذار.",
-    "وسط روز رسیدی 😂☀️ پیامت ثبت شد، بعداً دیده می‌شه.",
-    "ظهر به‌خیر رفیق 🌞🤖 فعلاً من سر پستم!",
-]
-AFTERNOON_FA = [
-    "عصرت قشنگ داش 🌇😎 فعلاً صاحب ربات نیست، ولی پیام رسید.",
-    "عصر بخیر رفیق 🌆🤖 پیامت اینجا محفوظ شد.",
-    "عصر رسیدی 😂🌇 من فعلاً جای صاحب ربات وایسادم!",
-]
-NIGHT_FA = [
-    "شب بخیر داش 🌙😎 فعلاً صاحب ربات در دسترس نیست.",
-    "اوه، شب رسیدی 😂🌙 پیامت رسید رفیق!",
-    "شب آروم رفیق 🌌🤖 فعلاً من نگهبانم.",
-]
-MORNING_EN = [
-    "Good morning! ☀️😎 The owner is currently away.",
-    "Morning bro! ☕️🤖 Your message has been received.",
-]
-NOON_EN = [
-    "Good afternoon! 🌞😎 The owner is currently away.",
-    "Afternoon bro! 🤖📩 Your message has been received.",
-]
-AFTERNOON_EN = [
-    "Good evening! 🌇😎 The owner is currently away.",
-    "Evening bro! 🤖📩 Your message is safe.",
-]
-NIGHT_EN = [
-    "Good night! 🌙😎 The owner is currently away.",
-    "Night bro! 🌌🤖 Your message has been received.",
-]
-def time_message(english=False):
-    hour = kabul_hour()
-    if english:
-        if 5 <= hour < 11:
-            return choose_random("time-en-morning", MORNING_EN)
-        if 11 <= hour < 15:
-            return choose_random("time-en-noon", NOON_EN)
-        if 15 <= hour < 19:
-            return choose_random("time-en-afternoon", AFTERNOON_EN)
-        return choose_random("time-en-night", NIGHT_EN)
-    else:
-        if 5 <= hour < 11:
-            return choose_random("time-fa-morning", MORNING_FA)
-        if 11 <= hour < 15:
-            return choose_random("time-fa-noon", NOON_FA)
-        if 15 <= hour < 19:
-            return choose_random("time-fa-afternoon", AFTERNOON_FA)
-        return choose_random("time-fa-night", NIGHT_FA)
-# =========================================================
-# چیستان فارسی
+# RIDDLES
 # =========================================================
 RIDDLES_FA = [
     (
@@ -223,9 +248,6 @@ RIDDLES_FA = [
         "جواب: سن 😄"
     ),
 ]
-# =========================================================
-# چیستان انگلیسی
-# =========================================================
 RIDDLES_EN = [
     (
         "Riddle:\nThe more you take away from me, the bigger I become. What am I?",
@@ -249,7 +271,7 @@ RIDDLES_EN = [
     ),
 ]
 # =========================================================
-# داستان فارسی
+# STORIES
 # =========================================================
 STORIES_FA = [
     "داستان:\nیک ربات تصمیم گرفت یک روز استراحت کند. "
@@ -264,9 +286,6 @@ STORIES_FA = [
     "گفت: «چه کاری؟» "
     "ربات گفت: «منتظر پیام بعدی تو 😂»",
 ]
-# =========================================================
-# داستان انگلیسی
-# =========================================================
 STORIES_EN = [
     "Story:\nA robot decided to take a day off. "
     "Five minutes later, its owner asked: 'Where are you?' "
@@ -278,7 +297,7 @@ STORIES_EN = [
     "The robot said: 'I knew it! My shift isn't over 😂🤖'",
 ]
 # =========================================================
-# شوخی فارسی
+# JOKES
 # =========================================================
 JOKES_FA = [
     "چرا کامپیوتر رفت دکتر؟ چون ویروس گرفته بود! 💻🤣",
@@ -288,9 +307,6 @@ JOKES_FA = [
     "گفتم اینترنت چرا کندی؟ گفت: «منم مثل تو حوصله ندارم!» 😂📡",
     "ربات رفت باشگاه؛ برگشت گفت: «آپدیت شدم!» 🤖😂",
 ]
-# =========================================================
-# شوخی انگلیسی
-# =========================================================
 JOKES_EN = [
     "Why did the computer go to the doctor? Because it had a virus! 💻🤣",
     "I asked Wi-Fi how it was doing. It said: 'No connection!' 📡😂",
@@ -298,90 +314,21 @@ JOKES_EN = [
     "I asked the internet why it was slow. It said: 'I'm tired too!' 😂📡",
 ]
 # =========================================================
-# پیام بعد از ۵ ثانیه
+# SEND MESSAGE
 # =========================================================
-async def delayed_response(
-    context,
-    chat_id,
-    business_connection_id,
-    kind,
-    answer,
-    english,
-):
-    """
-    این تابع ۵ ثانیه صبر می‌کند.
-    از asyncio.sleep استفاده شده، بنابراین ربات در این مدت
-    گیر نمی‌کند و می‌تواند پیام‌های دیگر را هم دریافت کند.
-    """
-    await asyncio.sleep(5)
-    if kind == "riddle":
-        if english:
-            prefix = random.choice([
-                "😂 Still thinking bro?",
-                "🤣 Time's up!",
-                "😎 Let's reveal it!",
-            ])
-        else:
-            prefix = random.choice([
-                "😂 داش هنوز داری فکر می‌کنی؟",
-                "🤣 خب رفیق، جوابو لو بدیم!",
-                "😎 وقتشه جواب رو بفهمی!",
-                "😂 این یکی سخت بود داش!",
-            ])
-        final_text = prefix + "\n\n" + answer
-    elif kind == "story":
-        if english:
-            final_text = random.choice([
-                "😂 Story complete!",
-                "🤣 And that's the end!",
-                "😎 End of story!",
-            ])
-        else:
-            final_text = random.choice([
-                "😂 خب داش، داستان هم تموم شد!",
-                "🤣 قسمت بعدی فعلاً در دست تولیده!",
-                "😎 پایان داستان؛ ربات برگشت سر پست!",
-            ])
-    else:
-        if english:
-            final_text = random.choice([
-                "😂 Did you laugh?",
-                "🤣 Joke successfully delivered!",
-                "😎 Robot comedy system completed!",
-            ])
-        else:
-            final_text = random.choice([
-                "😂 خندیدی یا فقط ربات خندید؟",
-                "🤣 شوخی با موفقیت تحویل داده شد!",
-                "😎 سیستم خنده فعال شد!",
-            ])
-    try:
-        if business_connection_id:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=final_text,
-                business_connection_id=business_connection_id,
-            )
-        else:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=final_text,
-            )
-    except Exception as error:
-        print(
-            "ERROR delayed_response:",
-            repr(error)
-        )
-# =========================================================
-# ارسال پیام با Business یا معمولی
-# =========================================================
-async def send_reply(
+async def send_message(
     context,
     message,
     text,
     business_connection_id=None,
 ):
-    """یک تابع مشترک برای ارسال پاسخ."""
+    """
+    اگر پیام از Chat Automation آمده باشد،
+    با business_connection_id پاسخ می‌دهد.
+    در غیر این صورت پیام معمولی Bot است.
+    """
+    if not text:
+        return
     try:
         if business_connection_id:
             await context.bot.send_message(
@@ -393,13 +340,59 @@ async def send_reply(
             await message.reply_text(text)
     except Exception as error:
         print(
-            "ERROR send_reply:",
+            "SEND ERROR:",
             repr(error)
         )
 # =========================================================
-# پردازش پیام
+# DELAYED ANSWER
 # =========================================================
-async def process_message(
+async def delayed_riddle_answer(
+    context,
+    chat_id,
+    business_connection_id,
+    answer,
+    language,
+):
+    """
+    ۵ ثانیه صبر می‌کند بدون اینکه ربات قفل شود.
+    پیام‌های دیگر در این مدت همچنان پردازش می‌شوند.
+    """
+    await asyncio.sleep(5)
+    if language == "en":
+        prefix = random.choice([
+            "😂 Still thinking bro?",
+            "🤣 Time's up!",
+            "😎 Let's reveal it!",
+        ])
+    else:
+        prefix = random.choice([
+            "😂 داش هنوز داری فکر می‌کنی؟",
+            "🤣 خب رفیق، جوابو لو بدیم!",
+            "😎 وقتشه جواب رو بفهمی!",
+            "😂 این یکی سخت بود داش!",
+        ])
+    final_text = prefix + "\n\n" + answer
+    try:
+        if business_connection_id:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=final_text,
+                business_connection_id=business_connection_id,
+            )
+        else:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=final_text,
+            )
+    except Exception as error:
+        print(
+            "DELAYED ANSWER ERROR:",
+            repr(error)
+        )
+# =========================================================
+# MAIN MESSAGE PROCESSOR
+# =========================================================
+async def handle_text(
     message,
     context,
     business_connection_id=None,
@@ -411,181 +404,150 @@ async def process_message(
     original = message.text.strip()
     if not original:
         return
-    text = normalize(original)
-    english = is_english(original)
+    text = clean_text(original)
+    language = detect_language(original)
     chat_id = message.chat_id
-    # -----------------------------------------------------
-    # چیستان
-    # -----------------------------------------------------
-    riddle_words = [
+    # =====================================================
+    # RIDDLE
+    # =====================================================
+    if any(word in text for word in [
         "چیستان",
         "معما",
         "riddle",
-    ]
-    if any(word in text for word in riddle_words):
-        if english:
+    ]):
+        if language == "en":
             question, answer = random.choice(RIDDLES_EN)
         else:
             question, answer = random.choice(RIDDLES_FA)
-        await send_reply(
+        await send_message(
             context,
             message,
             question,
             business_connection_id,
         )
         asyncio.create_task(
-            delayed_response(
+            delayed_riddle_answer(
                 context,
                 chat_id,
                 business_connection_id,
-                "riddle",
                 answer,
-                english,
+                language,
             )
         )
         return
-    # -----------------------------------------------------
-    # داستان
-    # -----------------------------------------------------
-    story_words = [
+    # =====================================================
+    # STORY
+    # =====================================================
+    if any(word in text for word in [
         "داستان",
         "قصه",
         "story",
-    ]
-    if any(word in text for word in story_words):
-        if english:
-            story = choose_random(
-                chat_id,
+    ]):
+        if language == "en":
+            story = random_reply(
+                str(chat_id) + "-story-en",
                 STORIES_EN,
             )
         else:
-            story = choose_random(
-                chat_id,
+            story = random_reply(
+                str(chat_id) + "-story-fa",
                 STORIES_FA,
             )
-        await send_reply(
+        await send_message(
             context,
             message,
             story,
             business_connection_id,
         )
-        asyncio.create_task(
-            delayed_response(
-                context,
-                chat_id,
-                business_connection_id,
-                "story",
-                None,
-                english,
-            )
-        )
         return
-    # -----------------------------------------------------
-    # شوخی
-    # -----------------------------------------------------
-    joke_words = [
+    # =====================================================
+    # JOKE
+    # =====================================================
+    if any(word in text for word in [
         "شوخی",
         "جوک",
         "لطیفه",
         "joke",
         "funny",
-    ]
-    if any(word in text for word in joke_words):
-        if english:
-            joke = choose_random(
-                chat_id,
+    ]):
+        if language == "en":
+            joke = random_reply(
+                str(chat_id) + "-joke-en",
                 JOKES_EN,
             )
         else:
-            joke = choose_random(
-                chat_id,
+            joke = random_reply(
+                str(chat_id) + "-joke-fa",
                 JOKES_FA,
             )
-        await send_reply(
+        await send_message(
             context,
             message,
             joke,
             business_connection_id,
         )
-        asyncio.create_task(
-            delayed_response(
-                context,
-                chat_id,
-                business_connection_id,
-                "joke",
-                None,
-                english,
-            )
-        )
         return
-    # -----------------------------------------------------
-    # شانسی
-    # -----------------------------------------------------
-    random_words = [
+    # =====================================================
+    # RANDOM
+    # =====================================================
+    if any(word in text for word in [
         "شانسی",
         "تصادفی",
         "random",
         "surprise",
-    ]
-    if any(word in text for word in random_words):
-        kind = random.choice([
+    ]):
+        category = random.choice([
             "riddle",
             "story",
             "joke",
         ])
-        answer = None
-        if kind == "riddle":
-            if english:
-                content, answer = random.choice(
-                    RIDDLES_EN
-                )
+        if category == "riddle":
+            if language == "en":
+                question, answer = random.choice(RIDDLES_EN)
             else:
-                content, answer = random.choice(
-                    RIDDLES_FA
-                )
-        elif kind == "story":
-            if english:
-                content = choose_random(
-                    chat_id,
-                    STORIES_EN,
-                )
-            else:
-                content = choose_random(
-                    chat_id,
-                    STORIES_FA,
-                )
-        else:
-            if english:
-                content = choose_random(
-                    chat_id,
-                    JOKES_EN,
-                )
-            else:
-                content = choose_random(
-                    chat_id,
-                    JOKES_FA,
-                )
-        await send_reply(
-            context,
-            message,
-            content,
-            business_connection_id,
-        )
-        asyncio.create_task(
-            delayed_response(
+                question, answer = random.choice(RIDDLES_FA)
+            await send_message(
                 context,
-                chat_id,
+                message,
+                question,
                 business_connection_id,
-                kind,
-                answer,
-                english,
             )
-        )
+            asyncio.create_task(
+                delayed_riddle_answer(
+                    context,
+                    chat_id,
+                    business_connection_id,
+                    answer,
+                    language,
+                )
+            )
+        elif category == "story":
+            if language == "en":
+                result = random.choice(STORIES_EN)
+            else:
+                result = random.choice(STORIES_FA)
+            await send_message(
+                context,
+                message,
+                result,
+                business_connection_id,
+            )
+        else:
+            if language == "en":
+                result = random.choice(JOKES_EN)
+            else:
+                result = random.choice(JOKES_FA)
+            await send_message(
+                context,
+                message,
+                result,
+                business_connection_id,
+            )
         return
-    # -----------------------------------------------------
-    # سلام
-    # -----------------------------------------------------
-    hello_words = [
+    # =====================================================
+    # HELLO
+    # =====================================================
+    if any(word in text for word in [
         "سلام",
         "سلاممم",
         "درود",
@@ -593,29 +555,28 @@ async def process_message(
         "hello",
         "hi",
         "hey",
-    ]
-    if any(word in text for word in hello_words):
-        if english:
-            response = choose_random(
-                chat_id,
+    ]):
+        if language == "en":
+            response = random_reply(
+                str(chat_id) + "-hello-en",
                 HELLO_EN,
             )
         else:
-            response = choose_random(
-                chat_id,
+            response = random_reply(
+                str(chat_id) + "-hello-fa",
                 HELLO_FA,
             )
-        await send_reply(
+        await send_message(
             context,
             message,
             response,
             business_connection_id,
         )
         return
-    # -----------------------------------------------------
-    # تشکر
-    # -----------------------------------------------------
-    thanks_words = [
+    # =====================================================
+    # THANKS
+    # =====================================================
+    if any(word in text for word in [
         "مرسی",
         "ممنون",
         "تشکر",
@@ -623,90 +584,93 @@ async def process_message(
         "دمت گرم",
         "thanks",
         "thank you",
-    ]
-    if any(word in text for word in thanks_words):
-        if english:
-            response = choose_random(
-                chat_id,
+    ]):
+        if language == "en":
+            response = random_reply(
+                str(chat_id) + "-thanks-en",
                 THANKS_EN,
             )
         else:
-            response = choose_random(
-                chat_id,
+            response = random_reply(
+                str(chat_id) + "-thanks-fa",
                 THANKS_FA,
             )
-        await send_reply(
+        await send_message(
             context,
             message,
             response,
             business_connection_id,
         )
         return
-    # -----------------------------------------------------
-    # کجایی؟
-    # -----------------------------------------------------
-    where_words = [
+    # =====================================================
+    # WHERE
+    # =====================================================
+    if any(word in text for word in [
         "کجایی",
         "کجاست",
         "کجاستی",
         "where are you",
         "where is he",
-    ]
-    if any(word in text for word in where_words):
-        if english:
-            response = choose_random(
-                chat_id,
+    ]):
+        if language == "en":
+            response = random_reply(
+                str(chat_id) + "-where-en",
                 WHERE_EN,
             )
         else:
-            response = choose_random(
-                chat_id,
+            response = random_reply(
+                str(chat_id) + "-where-fa",
                 WHERE_FA,
             )
-        await send_reply(
+        await send_message(
             context,
             message,
             response,
             business_connection_id,
         )
         return
-    # -----------------------------------------------------
-    # پاسخ عمومی
-    # -----------------------------------------------------
-    if english:
-        response = choose_random(
-            chat_id,
+    # =====================================================
+    # NORMAL MESSAGE
+    # =====================================================
+    if language == "en":
+        response = random_reply(
+            str(chat_id) + "-general-en",
             GENERAL_EN,
         )
-        response += "\n\n" + time_message(True)
+        response += "\n\n" + get_time_reply(
+            "en",
+            str(chat_id),
+        )
     else:
-        response = choose_random(
-            chat_id,
+        response = random_reply(
+            str(chat_id) + "-general-fa",
             GENERAL_FA,
         )
-        response += "\n\n" + time_message(False)
-    await send_reply(
+        response += "\n\n" + get_time_reply(
+            "fa",
+            str(chat_id),
+        )
+    await send_message(
         context,
         message,
         response,
         business_connection_id,
     )
 # =========================================================
-# پیام معمولی Bot
+# NORMAL BOT MESSAGE
 # =========================================================
 async def normal_message(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
-    if not update.message:
-        return
-    await process_message(
-        update.message,
-        context,
-        None,
-    )
+    if update.message:
+        await handle_text(
+            update.message,
+            context,
+            None,
+        )
 # =========================================================
-# پیام Chat Automation / Business
+# TELEGRAM BUSINESS / CHAT AUTOMATION
 # =========================================================
 async def business_message(
     update: Update,
@@ -715,35 +679,38 @@ async def business_message(
     message = update.business_message
     if not message:
         return
-    connection_id = message.business_connection_id
+    connection_id = (
+        message.business_connection_id
+    )
     print(
-        "BUSINESS MESSAGE:",
+        "BUSINESS MESSAGE RECEIVED:",
         message.chat_id,
         connection_id,
     )
-    await process_message(
+    await handle_text(
         message,
         context,
         connection_id,
     )
 # =========================================================
-# دستور Start
+# START
 # =========================================================
 async def start(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
+    if not update.message:
+        return
     await update.message.reply_text(
-        "🤖🔥 Spixle Bot فعال شد!\n\n"
-        "می‌تونی بنویسی:\n\n"
-        "چیستان\n"
-        "داستان\n"
-        "شوخی\n"
-        "شانسی\n\n"
-        "یا هر پیام معمولی دیگه‌ای 😎"
+        "🤖🔥 Spixle Bot فعال است!\n\n"
+        "چیستان = چیستان\n"
+        "داستان = داستان\n"
+        "شوخی = جوک\n"
+        "شانسی = یک چیز تصادفی\n\n"
+        "فارسی یا English، خودم زبان پیام رو تشخیص می‌دم 😎"
     )
 # =========================================================
-# ساخت Application
+# APPLICATION
 # =========================================================
 app = (
     Application
@@ -751,27 +718,21 @@ app = (
     .token(TOKEN)
     .build()
 )
-# =========================================================
-# Handler دستور Start
-# =========================================================
+# دستور /start
 app.add_handler(
     CommandHandler(
         "start",
         start,
     )
 )
-# =========================================================
-# پیام‌های معمولی خود Bot
-# =========================================================
+# پیام‌های عادی Bot
 app.add_handler(
     MessageHandler(
         filters.TEXT & ~filters.COMMAND,
         normal_message,
     )
 )
-# =========================================================
-# پیام‌های Business / Chat Automation
-# =========================================================
+# پیام‌های Telegram Business / Chat Automation
 app.add_handler(
     MessageHandler(
         filters.UpdateType.BUSINESS_MESSAGE,
@@ -779,32 +740,18 @@ app.add_handler(
     )
 )
 # =========================================================
-# شروع
+# START BOT
 # =========================================================
-print(
-    "===================================="
-)
-print(
-    "🤖🔥 Spixle Bot is starting..."
-)
-print(
-    "Business Automation: ENABLED"
-)
-print(
-    "Persian/English detection: ENABLED"
-)
-print(
-    "Riddle / Story / Joke / Random: ENABLED"
-)
-print(
-    "5 second delayed answers: ENABLED"
-)
-print(
-    "Timezone: Asia/Kabul"
-)
-print(
-    "===================================="
-)
+print("====================================")
+print("🤖🔥 SPIXLE BOT STARTING")
+print("Business / Chat Automation: ON")
+print("Persian / English: ON")
+print("Riddle 5-second answer: ON")
+print("Story: ON")
+print("Jokes: ON")
+print("Random mode: ON")
+print("Timezone: Asia/Kabul")
+print("====================================")
 app.run_polling(
     allowed_updates=[
         "message",
