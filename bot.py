@@ -1,4 +1,5 @@
 import asyncio
+import os
 import nest_asyncio
 
 from telegram import Update
@@ -6,7 +7,7 @@ from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
 nest_asyncio.apply()
 
-TOKEN = "8787876825:AAGuifHjOrkUgS6UAmM2Rwfck9Tv-2euA_M"
+TOKEN = os.environ["TOKEN"]
 
 async def reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("سلام 👋 پیام شما دریافت شد.")
