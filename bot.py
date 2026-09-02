@@ -1,5 +1,4 @@
-import os
-import ast
+im
 import math
 import random
 import operator as op
